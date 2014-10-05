@@ -56,6 +56,7 @@ std::string SocketTransportLayerToString(SocketTransportLayer transport)
 	{
 	case SocketOverUDP: return "UDP";
 	case SocketOverTCP: return "TCP";
+	case SocketOverWS: return "WS";
 	default:
 		{
 			std::stringstream ss;
@@ -73,6 +74,8 @@ SocketTransportLayer StringToSocketTransportLayer(const char *str)
 		return SocketOverTCP;
 	if (!_stricmp(str, "udp") || !_stricmp(str, "SocketOverUDP"))
 		return SocketOverUDP;
+	if (!_stricmp(str, "ws") || !_stricmp(str, "websocket") || !_stricmp(str, "SocketOverWS"))
+		return SocketOverWS;
 	return InvalidTransportLayer;
 }
 
@@ -391,7 +394,7 @@ size_t Socket::Receive(char *dst, size_t maxBytes, EndPoint *endPoint)
 		return numBytesRead;
 	}
 
-	// If we reach here, this socket is a tcp connection socket (server->client or client->server), or a udp client->server socket.
+	// If we reach here, this socket is a tcp or a ws connection socket (server->client or client->server), or a udp client->server socket.
 
 	int ret = recv(connectSocket, dst, maxBytes, 0);
 
@@ -734,7 +737,7 @@ bool Socket::Send(const char *data, size_t numBytes)
 	}
 	else if (bytesSent > 0) // Managed to send some data, but not all bytes.
 	{
-		assert(transport == SocketOverTCP); // Only TCP sockets should ever succeed 'partially'.
+		assert(transport == SocketOverTCP || transport == SocketOverWS); // Only TCP or WS sockets should ever succeed 'partially'.
 		// Our Socket::Send tries to guarantee that either all or nothing of the data is sent. We don't want
 		// to report back to the upper layer that only part of the data was successfully sent. So, try to
 		// re-issue the remainining bytes, but now in blocking mode, so we can wait for the rest of the data to
@@ -957,7 +960,7 @@ std::string Socket::ToString() const
 	char str[256];
 	sprintf(str, "%s:%d (%s, connected=%s, readOpen: %s, writeOpen: %s, maxSendSize=%d, sock: %s, peer: %s, socket: %d, this: %p)", 
 		DestinationAddress(), (int)DestinationPort(), 
-		(transport == SocketOverTCP) ? "TCP" : (IsUDPServerSocket() ? "UDP server" : (IsUDPSlaveSocket() ? "UDP Slave" : "UDP")), 
+		(transport != SocketOverUDP) ? SocketTransportLayerToString(transport).c_str(): (IsUDPServerSocket() ? "UDP server" : (IsUDPSlaveSocket() ? "UDP Slave" : "UDP")), 
 		Connected() ? "true" : "false", readOpen ? "true" : "false", writeOpen ? "true" : "false",
 		(int)maxSendSize, sockRet == 0 ? sockName.ToString().c_str() : "(-)", 
 		peerRet == 0 ? peerName.ToString().c_str() : "(-)", (int)connectSocket,
@@ -973,7 +976,8 @@ void Socket::SetNaglesAlgorithmEnabled(bool enabled)
 		LOG(LogError, "Socket::SetNaglesAlgorithmEnabled called for invalid socket object!");
 		return;
 	}
-	if (transport != SocketOverTCP)
+
+	if (transport == SocketOverUDP)
 	{
 		LOG(LogError, "Calling Socket::SetNaglesAlgorithmEnabled is only valid for TCP sockets!");
 		return;

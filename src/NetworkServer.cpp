@@ -31,6 +31,7 @@
 #include "kNet/NetworkWorkerThread.h"
 #include "kNet/NetworkLogging.h"
 #include "kNet/Clock.h"
+#include "kNet/WSMessageConnection.h"
 
 #include <iostream>
 #include <sstream>
@@ -117,7 +118,9 @@ Socket *NetworkServer::AcceptConnections(Socket *listenSocket)
 	EndPoint remoteEndPoint = EndPoint::FromSockAddrIn(remoteAddress);
 	std::string remoteHostName = remoteEndPoint.IPToString();
 
-	LOG(LogInfo, "Accepted incoming TCP connection from %s:%d.", remoteHostName.c_str(), (int)remoteEndPoint.port);
+	LOG(LogInfo, "Accepted incoming %s connection from %s:%d.",
+		SocketTransportLayerToString(listenSocket->TransportLayer()).c_str(),
+		remoteHostName.c_str(), (int)remoteEndPoint.port);
 
 	EndPoint localEndPoint;
 	sockaddr_in localSockAddr;
@@ -129,7 +132,8 @@ Socket *NetworkServer::AcceptConnections(Socket *listenSocket)
 	std::string localHostName = owner->LocalAddress();
 
 	const size_t maxTcpSendSize = 65536;
-	Socket *socket = owner->StoreSocket(Socket(acceptSocket, localEndPoint, localHostName.c_str(), remoteEndPoint, remoteHostName.c_str(), SocketOverTCP, ServerClientSocket, maxTcpSendSize));
+	Socket *socket = owner->StoreSocket(Socket(acceptSocket, localEndPoint, localHostName.c_str(), remoteEndPoint,
+		remoteHostName.c_str(), listenSocket->TransportLayer(), ServerClientSocket, maxTcpSendSize));
 	socket->SetBlocking(false);
 
 	return socket;
@@ -151,7 +155,7 @@ void NetworkServer::CleanupDeadConnections()
 			LOG(LogInfo, "Client %s disconnected.", iter->second->ToString().c_str());
 			if (networkServerListener)
 				networkServerListener->ClientDisconnected(iter->second);
-			if (iter->second->GetSocket() && iter->second->GetSocket()->TransportLayer() == SocketOverTCP)
+			if (iter->second->GetSocket() && iter->second->GetSocket()->TransportLayer() != SocketOverUDP)
 				owner->CloseConnection(iter->second);
 
 			{
@@ -171,7 +175,7 @@ void NetworkServer::Process()
 	{
 		Socket *listen = listenSockets[i];
 
-		if (listen->TransportLayer() == SocketOverTCP)
+		if (listen->TransportLayer() != SocketOverUDP)
 		{
 			// Accept the first inbound connection.
 			Socket *client = AcceptConnections(listen);
@@ -183,8 +187,12 @@ void NetworkServer::Process()
 				LOG(LogInfo, "Client connected from %s.", client->ToString().c_str());
 
 				// Build a MessageConnection on top of the raw socket.
-				assert(listen->TransportLayer() == SocketOverTCP);
-				Ptr(MessageConnection) clientConnection = new TCPMessageConnection(owner, this, client, ConnectionOK);
+				Ptr(MessageConnection) clientConnection;
+				assert(listen->TransportLayer() == SocketOverWS || listen->TransportLayer() == SocketOverTCP);
+				if (listen->TransportLayer() == SocketOverWS)
+					clientConnection = new WSMessageConnection(owner, this, client, ConnectionOK);
+				else
+					clientConnection = new TCPMessageConnection(owner, this, client, ConnectionOK);
 				assert(owner);
 				owner->AssignConnectionToWorkerThread(clientConnection);
 
@@ -475,7 +483,7 @@ void NetworkServer::ConnectionClosed(MessageConnection *connection)
 			if (networkServerListener)
 				networkServerListener->ClientDisconnected(connection);
 
-			if (connection->GetSocket() && connection->GetSocket()->TransportLayer() == SocketOverTCP)
+			if (connection->GetSocket() && connection->GetSocket()->TransportLayer() != SocketOverUDP)
 			{
 				owner->DeleteSocket(connection->socket);
 				connection->socket = 0;
@@ -521,22 +529,24 @@ int NetworkServer::NumConnections() const
 
 std::string NetworkServer::ToString() const
 {
-	bool isUdp = false;
-	bool isTcp = false;
+	std::set<SocketTransportLayer> transportLayerSet;
 	for(size_t i = 0; i < listenSockets.size(); ++i)
-		if (listenSockets[i]->TransportLayer() == SocketOverUDP)
-			isUdp = true;
-		else
-			isTcp = true;
+		transportLayerSet.insert(listenSockets[i]->TransportLayer());
 
 	std::stringstream ss;
-	if (isUdp && isTcp)
-		ss << "TCP+UDP server";
-	else if (isUdp)
-		ss << "UDP server";
-	else if (isTcp)
-		ss << "TCP server";
-	else ss << "Server (no listen sockets open)";
+	if (!transportLayerSet.empty())
+	{
+		std::vector<SocketTransportLayer> transportLayers(transportLayerSet.begin(), transportLayerSet.end());
+		for(size_t i = 0; i < transportLayers.size(); ++i)
+		{
+			ss << SocketTransportLayerToString(transportLayers[i]);
+				if (i < transportLayers.size() - 1)
+					ss << "+";
+		}
+		ss << " server";
+	}
+	else
+		ss << "Server (no listen sockets open)";
 
 	if (listenSockets.size() == 1)
 	{

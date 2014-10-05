@@ -1,13 +1,12 @@
    Welcome to kNet!
 
-kNet is a low-level networking protocol library designed for bit-efficient realtime streaming of custom application-specified messages on top of TCP or UDP. kNet is written in C++.
+kNet is a low-level networking protocol library designed for bit-efficient realtime streaming of custom application-specified messages on top of TCP, UDP or WebSocket. kNet is written in C++.
 
 
    Supported Platforms.
 
 kNet has been tested to build on the following platforms:
- - Windows 7 & Visual Studio 2010 Professional
- - Windows 7 & Visual Studio 2008 Standard
+ - Windows Vista and newer & Visual Studio 2008 and newer
  - Ubuntu 9.04 & GCC 4.4.1
  - Windows 7 & MinGW GCC 4.6.1 versioned 20111118 (beware though, MinGW is not actively supported)
 
@@ -29,8 +28,8 @@ Steps:
  2b. If you do not want to use Boost, edit the root CMakeLists.txt and comment out the USE_BOOST directive. If Boost is not used, kNet will utilize native threading APIs on each platform (WIN32 CreateThread or POSIX threads). There are no functional differences with using either.
  3. Optional: If you do not want to use TinyXML, edit the root CMakeLists.txt and make sure the USE_TINYXML directive is commented out. This will disable the functionality of SerializedMessageList/MessageListParser though. 
  4. Optional: kNet can use Qt to provider debug statistics and profiling windows. Install and build Qt (4.6.2 or newer recommended) and uncomment #set(USE_QT TRUE) in the root CMakeLists.txt.
- 5a. Windows VS2008: Execute in project root folder the command 'cmake -G "Visual Studio 9"' (case sensitive!), or click on the cmake_vs2008.bat.
- 5b. Windows VS2010: Execute in project root folder the command 'cmake -G "Visual Studio 10"' (case sensitive!), or click on the cmake_vs2010.bat.
+ 5a. Windows VS2008 32-bit: Execute in project root folder the command 'cmake -G "Visual Studio 9 2008"' (case sensitive!), or click on the cmake_vs2008.bat.
+ 5b. Windows VS2010 32-bit: Execute in project root folder the command 'cmake -G "Visual Studio 10"' (case sensitive!), or click on the cmake_vs2010.bat.
  5c. Linux and Mac: Run 'cmake .' in kNet root folder.
  6. If CMake fails to find your Qt installation, or if you want to explicitly specify the source location, set the QMAKESPEC and QTDIR environment variables or alter the cmake_vs2008.bat/cmake_vs2010.bat files.
  7a. Windows: Open and build the kNet.sln.

@@ -130,6 +130,7 @@ private:
 	friend class MessageConnection;
 	friend class UDPMessageConnection;
 	friend class TCPMessageConnection;
+	friend class WSMessageConnection;
 	friend class FragmentedSendManager;
 	friend struct FragmentedSendManager::FragmentedTransfer;
 

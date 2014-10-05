@@ -45,9 +45,6 @@
 namespace kNet
 {
 
-class MessageConnection;
-class UDPMessageConnection;
-class TCPMessageConnection;
 class NetworkServer;
 class Network;
 class NetworkWorkerThread;

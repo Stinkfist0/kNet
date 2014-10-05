@@ -226,7 +226,7 @@ void NetworkWorkerThread::MainLoop()
 					waitEvents.AddEvent(falseEvent);
 					assert(falseEvent.Test() == false && !falseEvent.IsNull());
 				}
-				else // TCP socket
+				else // TCP or WS socket
 					waitEvents.AddEvent(connection.NewOutboundMessagesEvent());
 			}
 			else if (socketMessagesAvailable) // Here, socketSendReady == false

@@ -38,6 +38,8 @@
 
 #include "kNet/TCPMessageConnection.h"
 #include "kNet/UDPMessageConnection.h"
+#include "kNet/WSMessageConnection.h"
+#include "kNet/UDPMessageConnection.h"
 #include "kNet/NetworkWorkerThread.h"
 #include "kNet/NetworkLogging.h"
 
@@ -385,7 +387,7 @@ NetworkServer *Network::StartServer(unsigned short port, SocketTransportLayer tr
 	if (listenSock == 0)
 	{
 		LOG(LogError, "Failed to start server. Could not open listen port to %d using %s.", (int)port, 
-			transport == SocketOverTCP ? "TCP" : "UDP");
+			SocketTransportLayerToString(transport));
 		return 0;
 	}
 
@@ -445,6 +447,14 @@ NetworkServer *Network::StartServer(const std::vector<std::pair<unsigned short, 
 		ss << "TCP ";
 		for(size_t i = 0; i < listenSockets.size(); ++i)
 			if (listenSockets[i]->TransportLayer() == SocketOverTCP)
+				ss << listenSockets[i]->LocalPort() << " ";
+		LOG(LogInfo, ss.str().c_str());
+	}
+	{
+		std::stringstream ss;
+		ss << "WS ";
+		for(size_t i = 0; i < listenSockets.size(); ++i)
+			if (listenSockets[i]->TransportLayer() == SocketOverWS)
 				ss << listenSockets[i]->LocalPort() << " ";
 		LOG(LogInfo, ss.str().c_str());
 	}
@@ -545,8 +555,8 @@ Socket *Network::OpenListenSocket(unsigned short port, SocketTransportLayer tran
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_flags = AI_PASSIVE;
-	hints.ai_socktype = (transport == SocketOverTCP) ? SOCK_STREAM : SOCK_DGRAM;
-	hints.ai_protocol = (transport == SocketOverTCP) ? IPPROTO_TCP : IPPROTO_UDP;
+	hints.ai_socktype = (transport == SOCK_DGRAM) ? SOCK_DGRAM : SOCK_STREAM; // SOCK_STREAM for both TCP and WS
+	hints.ai_protocol = (transport == SocketOverUDP) ? IPPROTO_UDP : IPPROTO_TCP; // IPPROTO_TCP for both TCP and WS
 
 	char strPort[256];
 	sprintf(strPort, "%d", (unsigned int)port);
@@ -588,13 +598,13 @@ Socket *Network::OpenListenSocket(unsigned short port, SocketTransportLayer tran
 	sockaddr_in localAddress = *(sockaddr_in*)&result->ai_addr;
 
 	// Setup the listening socket - bind it to a local port.
-	// If we are setting up a TCP socket, the socket will be only for listening and accepting incoming connections.
+	// If we are setting up a TCP or a WS socket, the socket will be only for listening and accepting incoming connections.
 	// If we are setting up an UDP socket, all connection initialization and data transfers will be managed through this socket.
 	ret = bind(listenSocket, result->ai_addr, (int)result->ai_addrlen);
 	if (ret == KNET_SOCKET_ERROR)
 	{
 		LOG(LogError, "bind failed: %s when trying to bind to port %d with transport %s", 
-			GetLastErrorString().c_str(), (int)port, transport == SocketOverTCP ? "TCP" : "UDP");
+			GetLastErrorString().c_str(), (int)port, SocketTransportLayerToString(transport));
 		closesocket(listenSocket);
 		freeaddrinfo(result);
 		return 0;
@@ -603,7 +613,7 @@ Socket *Network::OpenListenSocket(unsigned short port, SocketTransportLayer tran
 	freeaddrinfo(result);
 
 	// For a reliable TCP socket, start the server with a call to listen().
-	if (transport == SocketOverTCP)
+	if (transport == SocketOverTCP || transport == SocketOverWS)
 	{
 		// Transition the bound socket to a listening state.
 		ret = listen(listenSocket, SOMAXCONN);
@@ -621,7 +631,7 @@ Socket *Network::OpenListenSocket(unsigned short port, SocketTransportLayer tran
 	EndPoint remoteEndPoint;
 	remoteEndPoint.Reset();
 
-	const size_t maxSendSize = (transport == SocketOverTCP ? cMaxTCPSendSize : cMaxUDPSendSize);
+	const size_t maxSendSize = (transport == SocketOverUDP ? cMaxUDPSendSize : cMaxTCPSendSize);
 	sockets.push_back(Socket(listenSocket, localEndPoint, localHostName.c_str(), remoteEndPoint, "", transport, ServerListenSocket, maxSendSize));
 	Socket *listenSock = &sockets.back();
 	listenSock->SetBlocking(false);
@@ -635,8 +645,8 @@ Socket *Network::ConnectSocket(const char *address, unsigned short port, SocketT
 	addrinfo hints;
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
-	hints.ai_socktype = (transport == SocketOverTCP) ? SOCK_STREAM : SOCK_DGRAM;
-	hints.ai_protocol = (transport == SocketOverTCP) ? IPPROTO_TCP : IPPROTO_UDP;
+	hints.ai_socktype = (transport == SocketOverUDP) ? SOCK_DGRAM : SOCK_STREAM;
+	hints.ai_protocol = (transport == SocketOverUDP) ? IPPROTO_UDP : IPPROTO_TCP;
 
 	char strPort[256];
 	sprintf(strPort, "%d", (unsigned int)port);
@@ -687,7 +697,7 @@ Socket *Network::ConnectSocket(const char *address, unsigned short port, SocketT
 	socklen_t socknamelen = sizeof(sockname);
 	ret = getsockname(connectSocket, (sockaddr*)&sockname, &socknamelen);
 	if (ret == 0)
-		 localEndPoint = EndPoint::FromSockAddrIn(sockname);
+		localEndPoint = EndPoint::FromSockAddrIn(sockname);
 	else
 		LOG(LogError, "Network::ConnectSocket: getsockname failed: %s!", Network::GetLastErrorString().c_str());
 
@@ -702,7 +712,7 @@ Socket *Network::ConnectSocket(const char *address, unsigned short port, SocketT
 
 	std::string remoteHostName = remoteEndPoint.IPToString();
 
-	const size_t maxSendSize = (transport == SocketOverTCP) ? cMaxTCPSendSize : cMaxUDPSendSize;
+	const size_t maxSendSize = (transport == SocketOverUDP) ? cMaxUDPSendSize : cMaxTCPSendSize;
 	Socket socket(connectSocket, localEndPoint, localHostName.c_str(), remoteEndPoint, remoteHostName.c_str(), transport, ClientSocket, maxSendSize);
 
 	socket.SetBlocking(false);
@@ -726,11 +736,14 @@ Ptr(MessageConnection) Network::Connect(const char *address, unsigned short port
 		LOG(LogInfo, "Network::Connect: Sent a UDP Connection Start datagram to to %s.", socket->ToString().c_str());
 	}
 	else
-		LOG(LogInfo, "Network::Connect: Connected a TCP socket to %s.", socket->ToString().c_str());
+		LOG(LogInfo, "Network::Connect: Connected a %s socket to %s.",
+			SocketTransportLayerToString(transport).c_str(), socket->ToString().c_str());
 
 	Ptr(MessageConnection) connection;
 	if (transport == SocketOverTCP)
 		connection = new TCPMessageConnection(this, 0, socket, ConnectionOK);
+	else if (transport == SocketOverWS)
+		connection = new WSMessageConnection(this, 0, socket, ConnectionOK);
 	else
 		connection = new UDPMessageConnection(this, 0, socket, ConnectionPending);
 

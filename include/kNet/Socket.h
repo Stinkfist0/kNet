@@ -69,7 +69,8 @@ enum SocketTransportLayer
 {
 	InvalidTransportLayer = 0, ///< A default invalid value for uninitialized sockets.
 	SocketOverUDP,
-	SocketOverTCP
+	SocketOverTCP,
+	SocketOverWS
 };
 
 std::string SocketTransportLayerToString(SocketTransportLayer transport);
@@ -77,6 +78,7 @@ std::string SocketTransportLayerToString(SocketTransportLayer transport);
 /// Converts the given string (case-insensitive parsing) to the corresponding SocketTransportLayer enum.
 /// "tcp" & "socketovertcp" -> SocketOverTCP.
 /// "udp" & "socketoverudp" -> SocketOverUDP.
+/// "ws", "websocket" & "socketoverws" -> SocketOverWS.
 /// Other strings -> InvalidTransportLayer.
 SocketTransportLayer StringToSocketTransportLayer(const char *str);
 
@@ -245,7 +247,7 @@ public:
 	/// Returns the event object that will be notified whenever data is available to be read from the socket.
 	Event GetOverlappedReceiveEvent(); // [worker thread]
 
-	/// Returns which transport layer the connection is using. This value is either SocketOverUDP or SocketOverTCP.
+	/// Returns which transport layer the connection is using.
 	SocketTransportLayer TransportLayer() const { return transport; }
 
 	/// Returns the type of this socket object.
